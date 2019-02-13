@@ -1,5 +1,6 @@
 package operation
 
+// Operation Test comment
 type Operation interface {
 	SetErrorIfTrue(result bool, error OperationResult) bool
 	SetErrorIfFalse(result bool, error OperationResult) bool
@@ -7,6 +8,7 @@ type Operation interface {
 	SetDone() bool
 	Done() (bool, bool, OperationResult)
 	HasResult(result OperationResult) bool
+	Invoke() bool
 }
 
 type OperationResult = uint
