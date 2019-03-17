@@ -1,77 +1,159 @@
 package operation
 
-// Operation Test comment
-type Operation interface {
-	SetErrorIfTrue(result bool, error OperationResult) bool
-	SetErrorIfFalse(result bool, error OperationResult) bool
-	SetResult(result bool, error OperationResult, good OperationResult) bool
-	SetDone() bool
-	Done() (bool, bool, OperationResult)
-	HasResult(result OperationResult) bool
-	Invoke() bool
-}
-
-type OperationResult = uint
-
-const (
-	opNotExecuted = OperationResult(0)
-	opGood        = OperationResult(1)
-	opError       = OperationResult(2)
+import (
+	"fmt"
+	"log"
 )
 
-type operationData struct {
-	result OperationResult
+type OperationResult string
+
+type OperationInterface interface {
+	GetResults() map[OperationResult]bool
+	IsDone() bool
+	String() string
 }
 
 type BaseOperation struct {
-	operationData
+	OperationInterface
+	hasError bool
+	isDone   bool
+	names    map[OperationResult]bool
 }
 
-func (op *operationData) SetResult(result bool, error OperationResult, good OperationResult) bool {
-	if error < 4 || good < 4 {
-		panic("Result must be greater than or equal 4")
-	}
-	if result {
-		op.result |= (((op.result & 3) >> 1) + 1) | good
-	} else {
-		op.result = (op.result &^ 1) | opError | error
-	}
-	return (op.result & 1) > 0
+//var OperationNotCreated = errors.New("OperationNotCreated")
+
+const (
+	OperationNotExecuted OperationResult = "OperationNotExecuted"
+)
+
+func (op *BaseOperation) GetResults() map[OperationResult]bool {
+	// if op.names == nil {
+	// 	return nil
+	// }
+	// result := make([]OperationResult, len(op.names))
+	// i := 0
+	// for r, _ := range op.names {
+	// 	result[i] = r
+	// 	i++
+	// }
+	return op.names
 }
 
-func (op *operationData) SetErrorIfTrue(result bool, error OperationResult) bool {
-	if error < 4 {
-		panic("Result must be greater than or equal 4")
+func (op *BaseOperation) TryInit() bool {
+	// if op == nil {
+	// 	panic("OperationNotCreated")
+	// }
+	if op.isDone {
+		return false
 	}
-	if !result {
-		op.result |= ((op.result & 3) >> 1) + 1
-	} else {
-		op.result = (op.result &^ opGood) | opError | error
+	if op.names == nil {
+		op.names = make(map[OperationResult]bool)
 	}
-	return result
+	return true
 }
 
-func (op *operationData) SetErrorIfFalse(result bool, error OperationResult) bool {
-	if error < 4 {
-		panic("Result must be greater than or equal 4")
+func (op *BaseOperation) TryExecute() bool {
+	// if op == nil {
+	// 	panic("OperationNotCreated")
+	// }
+	if op.isDone {
+		return false
 	}
-	if result {
-		op.result |= ((op.result & 3) >> 1) + 1
-	} else {
-		op.result = (op.result &^ opGood) | opError | error
+	op.isDone = true
+	if op.names == nil {
+		op.names = make(map[OperationResult]bool)
 	}
-	return result
+	return true
 }
 
-func (op *operationData) SetDone() bool {
-	op.result |= ((op.result & 3) >> 1) + 1
-	return op.result&1 > 0
+func (op *BaseOperation) HasErrors() bool {
+	return !op.isDone || op.hasError
 }
 
-func (op *operationData) Done() (bool, bool, OperationResult) {
-	return op.result > 0, op.result&2 > 0, op.result
+func (op *BaseOperation) IsDone() bool {
+	return op.isDone
 }
 
-func (op *operationData) HasResult(result OperationResult) bool {
-	return op.result&result > 0
+func (op *BaseOperation) SetResult(result OperationResult) bool {
+	op.names[result] = false
+	return op.hasError
+}
+
+func (op *BaseOperation) SetResultIf(value bool, result OperationResult) bool {
+	if value {
+		op.names[result] = false
+	}
+	return op.hasError
+}
+
+func (op *BaseOperation) SetResultIfNot(value bool, result OperationResult) bool {
+	if !value {
+		op.names[result] = false
+	}
+	return op.hasError
+}
+
+func (op *BaseOperation) String() string {
+	return fmt.Sprintf("%v", op.names)
+}
+
+func (op *BaseOperation) SetError(result OperationResult) bool {
+	op.hasError = true
+	op.names[result] = true
+	log.Println((*op).String())
+	return false
+}
+
+func (op *BaseOperation) SetErrorIf(value bool, result OperationResult) bool {
+	if !value {
+		return true
+	}
+	op.hasError = true
+	op.names[result] = true
+	return false
+}
+
+func (op *BaseOperation) SetErrorIfNot(value bool, result OperationResult) bool {
+	if value {
+		return true
+	}
+	op.hasError = true
+	op.names[result] = true
+	return false
+}
+
+func (op *BaseOperation) UnionResult(op1 OperationInterface) bool {
+	if op1 == nil || !op1.IsDone() {
+		return op.SetError(OperationNotExecuted)
+	}
+	for n := range op1.GetResults() {
+		op.names[n] = false
+	}
+	return !op.hasError
+}
+
+func (op *BaseOperation) Union(op1 OperationInterface) bool {
+	if op1 == nil || !op1.IsDone() {
+		return op.SetError(OperationNotExecuted)
+	}
+	for n, r := range op1.GetResults() {
+		op.names[n] = r
+		if r {
+			op.hasError = true
+		}
+	}
+	return !op.hasError
+}
+
+func (op *BaseOperation) UnionWithPrefix(op1 OperationInterface, prefix string) bool {
+	if op1 == nil || !op1.IsDone() {
+		return op.SetError(OperationResult(prefix + string(OperationNotExecuted)))
+	}
+	for n, r := range op1.GetResults() {
+		op.names[OperationResult(prefix+string(n))] = r
+		if r {
+			op.hasError = true
+		}
+	}
+	return !op.hasError
 }
