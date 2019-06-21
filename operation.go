@@ -1,6 +1,7 @@
 package operation
 
 import (
+	"errors"
 	"fmt"
 	"log"
 )
@@ -10,46 +11,31 @@ type OperationResult string
 type OperationInterface interface {
 	GetResults() map[OperationResult]bool
 	IsDone() bool
-	String() string
+	//String() string
+	HasGoodResult(result OperationResult) bool
+	HasErrorResult(result OperationResult) bool
+	GetError() error
+	//SetInfo(log string)
+	HasErrors() bool
 }
 
 type BaseOperation struct {
 	OperationInterface
 	hasError bool
 	isDone   bool
-	names    map[OperationResult]bool
+	names    map[OperationResult]bool // true - предупреждение, false - ошибка
+	error    error
 }
 
 //var OperationNotCreated = errors.New("OperationNotCreated")
 
 const (
 	OperationNotExecuted OperationResult = "OperationNotExecuted"
+	OperationPanic                       = "Panic"
 )
 
 func (op *BaseOperation) GetResults() map[OperationResult]bool {
-	// if op.names == nil {
-	// 	return nil
-	// }
-	// result := make([]OperationResult, len(op.names))
-	// i := 0
-	// for r, _ := range op.names {
-	// 	result[i] = r
-	// 	i++
-	// }
 	return op.names
-}
-
-func (op *BaseOperation) TryInit() bool {
-	// if op == nil {
-	// 	panic("OperationNotCreated")
-	// }
-	if op.isDone {
-		return false
-	}
-	if op.names == nil {
-		op.names = make(map[OperationResult]bool)
-	}
-	return true
 }
 
 func (op *BaseOperation) TryExecute() bool {
@@ -75,22 +61,23 @@ func (op *BaseOperation) IsDone() bool {
 }
 
 func (op *BaseOperation) SetResult(result OperationResult) bool {
-	op.names[result] = false
-	return op.hasError
+
+	op.names[result] = true
+	return true
 }
 
 func (op *BaseOperation) SetResultIf(value bool, result OperationResult) bool {
 	if value {
-		op.names[result] = false
+		op.names[result] = true
 	}
-	return op.hasError
+	return !value
 }
 
 func (op *BaseOperation) SetResultIfNot(value bool, result OperationResult) bool {
 	if !value {
-		op.names[result] = false
+		op.names[result] = true
 	}
-	return op.hasError
+	return value
 }
 
 func (op *BaseOperation) String() string {
@@ -99,7 +86,7 @@ func (op *BaseOperation) String() string {
 
 func (op *BaseOperation) SetError(result OperationResult) bool {
 	op.hasError = true
-	op.names[result] = true
+	op.names[result] = false
 	log.Println((*op).String())
 	return false
 }
@@ -109,7 +96,7 @@ func (op *BaseOperation) SetErrorIf(value bool, result OperationResult) bool {
 		return true
 	}
 	op.hasError = true
-	op.names[result] = true
+	op.names[result] = false
 	return false
 }
 
@@ -118,18 +105,44 @@ func (op *BaseOperation) SetErrorIfNot(value bool, result OperationResult) bool 
 		return true
 	}
 	op.hasError = true
-	op.names[result] = true
+	op.names[result] = false
 	return false
+}
+
+func (op *BaseOperation) TryAll(values ...bool) bool {
+	result := true
+	for _, v := range values {
+		result = result && v
+	}
+	return result
 }
 
 func (op *BaseOperation) UnionResult(op1 OperationInterface) bool {
 	if op1 == nil || !op1.IsDone() {
 		return op.SetError(OperationNotExecuted)
 	}
-	for n := range op1.GetResults() {
-		op.names[n] = false
+	result := true
+	for n, v := range op1.GetResults() {
+		if !v {
+			result = false
+		}
+		op.names[n] = true
 	}
-	return !op.hasError
+	return result
+}
+
+func (op *BaseOperation) UnionResultWithPrefix(op1 OperationInterface, prefix string) bool {
+	if op1 == nil || !op1.IsDone() {
+		return op.SetError(OperationNotExecuted)
+	}
+	result := true
+	for n, v := range op1.GetResults() {
+		if !v {
+			result = false
+		}
+		op.names[OperationResult(prefix+string(n))] = true
+	}
+	return result
 }
 
 func (op *BaseOperation) Union(op1 OperationInterface) bool {
@@ -156,4 +169,44 @@ func (op *BaseOperation) UnionWithPrefix(op1 OperationInterface, prefix string) 
 		}
 	}
 	return !op.hasError
+}
+
+func (op *BaseOperation) HasGoodResult(result OperationResult) bool {
+	if !op.isDone {
+		op.error = errors.New("HasGoodResult under not executed operation")
+		return false
+	}
+	v, ok := op.names[result]
+	return ok && v
+}
+
+func (op *BaseOperation) HasErrorResult(result OperationResult) bool {
+	if !op.isDone {
+		op.error = errors.New("HasErrorResult under not executed operation")
+		return false
+	}
+	if !op.hasError {
+		return false
+	}
+	v, ok := op.names[result]
+	return ok && !v
+}
+
+func (op *BaseOperation) GetPanic() error {
+	return op.error
+}
+func (op *BaseOperation) SetPanic(error error) bool {
+	op.error = error
+	op.hasError = true
+	op.names[OperationPanic] = false
+	log.Println(error)
+	return false
+}
+
+func (op *BaseOperation) SetPanicWithError(err OperationResult, error error) bool {
+	op.error = error
+	op.hasError = true
+	op.names[err] = false
+	log.Println(error)
+	return false
 }
